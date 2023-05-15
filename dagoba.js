@@ -77,3 +77,27 @@ Dagoba.query = function (graph) {
 
   return query;
 };
+
+Dagoba.Q.add = function (pipetype, args) {
+  // add new step to the query
+  var step = [pipetype, args];
+  this.program.push(step); // step is a pair of pipetype and its args
+  return this;
+};
+
+Dagoba.G.v = function () {
+  // query initializer: g.v() -> query
+  var query = Dagoba.query(this);
+  query.add("vertex", [].slice.call(arguments)); // add a step to our program
+  return query;
+};
+
+/!* PIPETYPES */;
+Dagoba.Pipetypes = {};
+
+Dagoba.addPipetype = function (name, fun) {
+  Dagoba.Pipetypes[name] = fun;
+  Dagoba.Q[name] = function () {
+    return this.add(name, [].slice.apply(arguments));
+  };
+};
