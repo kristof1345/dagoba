@@ -15,6 +15,7 @@ Dagoba.graph = function (V, E) {
   if (Array.isArray(V)) graph.addVertices(V); // arrays only, because you wouldn't
   if (Array.isArray(E)) graph.addEdges(E); //   call this with singular V and E
 
+  console.log(graph);
   return graph;
 };
 
@@ -101,3 +102,55 @@ Dagoba.addPipetype = function (name, fun) {
     return this.add(name, [].slice.apply(arguments));
   };
 };
+
+Dagoba.getPipetype = function (name) {
+  var pipetype = Dagoba.Pipetypes[name]; // a pipetype is a function
+  if (!pipetype) {
+    Dagoba.error("Unrecognized pipetype: " + name);
+  }
+  return pipetype || Dagoba.fauxPipetype;
+};
+
+Dagoba.fauxPipetype = function (_, _, maybe_gremlin) {
+  // pass the result upstream
+  return maybe_gremlin || "pull"; // or send a pull downstream
+};
+
+//BUILT IN PIPETYPES
+
+Dagoba.addPipetype("vertex", function (graph, args, gremlin, state) {
+  if (!state.vertices) {
+    state.vertices = graph.findVertices(args); // init state
+  }
+
+  if (!state.vertices.length) {
+    // all done
+    return "done";
+  }
+
+  var vertex = state.vertices.pop(); // OPT: requires vertex cloning
+  return Dagoba.makeGremlin(vertex, gremlin.state); // gremlins from as/back queries
+});
+
+Dagoba.simpleTraversal = function (dir) {
+  var find_method = dir == "out" ? "findOutEdges" : "findInEdges";
+  var edge_list = dir == "out" ? "_in" : "_out";
+
+  return function (graph, args, gremlin, state) {
+    if (!gremlin && (!state.edges || !state.edges.length)) return "pull"; // query init
+
+    if (!state.edges || !state.edges.length) {
+      state.gremlin = gremlin;
+      state.edges = graph[find_method](gremlin.vertex).filter(
+        Dagoba.filterEdges(args[0]) // get matching edges
+      );
+    }
+    if (!state.edges.length) return "pull";
+
+    var vertex = state.edges.pop()[edge_list]; // use up an edge
+    return Dagoba.gotoVertex(state.gremlin, vertex);
+  };
+};
+
+Dagoba.addPipetype("out", Dagoba.simpleTraversal("out"));
+Dagoba.addPipetype("in", Dagoba.simpleTraversal("in"));
