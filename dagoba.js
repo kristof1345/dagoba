@@ -219,11 +219,85 @@ Dagoba.addPipetype("property", function (graph, args, gremlin, state) {
   return gremlin.result == null ? false : gremlin; // false for bad props
 });
 
-let V = [
-  { name: "alice" }, // alice gets auto-_id (prolly 1)
-  { _id: 10, name: "bob", hobbies: ["asdf", { x: 3 }] },
-];
-let E = [{ _out: 1, _in: 10, _label: "knows" }];
-let g = Dagoba.graph(V, E);
+Dagoba.addPipetype("unique", function (graph, args, gremlin, state) {
+  if (!gremlin) return "pull"; // init query
+  if (state[gremlin.vertex._id]) return "pull";
+  state[gremlin.vertex._id] = true;
+  return gremlin; // false for bad props
+});
 
-g.v("Thor").out("parent").out("parent").run();
+Dagoba.addPipetype("filter", function (graph, args, gremlin, state) {
+  if (!gremlin) return "pull"; // init query
+
+  if (typeof args[0] === "object") {
+    return Dagoba.objectFilter(gremlin.vertex, args[0]) ? gremlin : "pull";
+  }
+
+  if (typeof args[0] != "function") {
+    Dagoba.error("Filter is not a function: " + args[0]);
+    return gremlin; // keep things moving
+  }
+
+  if (!args[0](gremlin.vertex, gremlin)) return "pull"; // gremlin fails filter
+  return gremlin;
+});
+
+Dagoba.addPipetype("take", function (graph, args, gremlin, state) {
+  state.taken = state.taken || 0; // init state
+
+  if (state.taken == args[0]) {
+    state.taken = 0;
+    return "done"; // all done
+  }
+
+  if (!gremlin) return "pull";
+  state.taken++;
+  return gremlin;
+});
+
+Dagoba.addPipetype("as", function (graph, args, gremlin, state) {
+  if (!gremlin) return "pull";
+  gremlin.state.as = gremlin.state.as || {}; // init the 'as' state
+  gremlin.state.as[args[0]] = gremlin.vertex; // set label to vertex
+  return gremlin;
+});
+
+Dagoba.addPipetype("merge", function (graph, args, gremlin, state) {
+  if (!state.vertices && !gremlin) return "pull";
+
+  if (!state.vertices || !state.vertices.length) {
+    var obj = (gremlin.state || {}).as || {};
+    state.vertices = args
+      .map(function (id) {
+        return obj[id];
+      })
+      .filter(Boolean);
+  }
+
+  if (!state.vertices.length) return "pull";
+
+  var vertex = state.vertices.pop();
+  return Dagoba.makeGremlin(vertex, gremlin.state);
+});
+
+Dagoba.addPipetype("merge", function (graph, args, gremlin, state) {
+  if (!gremlin) return "pull";
+
+  if (gremlin.vertex == gremlin.state.as[args[0]]) return "pull";
+
+  return gremlin;
+});
+
+Dagoba.addPipetype("back", function (graph, args, gremlin, state) {
+  if (!gremlin) return "pull"; // query initialization
+  return Dagoba.gotoVertex(gremlin, gremlin.state.as[args[0]]);
+});
+
+// let V = [
+//   { name: "alice" }, // alice gets auto-_id (prolly 1)
+//   { _id: 10, name: "bob", hobbies: ["asdf", { x: 3 }] },
+// ];
+// let E = [{ _out: 1, _in: 10, _label: "knows" }];
+// let g = Dagoba.graph(V, E);
+
+// g.v("Thor").out("parent").out("parent").run();
